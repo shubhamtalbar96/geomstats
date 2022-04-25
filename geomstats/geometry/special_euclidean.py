@@ -4,6 +4,7 @@ i.e. the Lie group of rigid transformations in n dimensions.
 
 Lead authors: Nicolas Guigui and Nina Miolane.
 """
+import math
 
 import geomstats.algebra_utils as utils
 import geomstats.backend as gs
@@ -219,7 +220,7 @@ class _SpecialEuclideanMatrices(MatrixLieGroup, LevelSet):
         The Euclidean (Frobenius) inner product.
     """
 
-    def __init__(self, n):
+    def __init__(self, n, **kwargs):
         super().__init__(
             n=n + 1,
             dim=int((n * (n + 1)) / 2),
@@ -228,6 +229,7 @@ class _SpecialEuclideanMatrices(MatrixLieGroup, LevelSet):
             value=gs.eye(n + 1),
             tangent_submersion=tangent_submersion,
             lie_algebra=SpecialEuclideanMatrixLieAlgebra(n=n),
+            **kwargs
         )
         self.rotations = SpecialOrthogonal(n=n)
         self.translations = Euclidean(dim=n)
@@ -236,7 +238,8 @@ class _SpecialEuclideanMatrices(MatrixLieGroup, LevelSet):
         self.left_canonical_metric = SpecialEuclideanMatrixCannonicalLeftMetric(
             group=self
         )
-        self.metric = self.left_canonical_metric
+        if self._metric is None:
+            self._metric = self.left_canonical_metric
 
     @property
     def identity(self):
@@ -1154,7 +1157,7 @@ class SpecialEuclideanMatrixCannonicalLeftMetric(_InvariantMetricMatrix):
         return log
 
     def parallel_transport(
-        self, tangent_vec, base_point, direction=None, end_point=None
+        self, tangent_vec, base_point, direction=None, end_point=None, **kwargs
     ):
         r"""Compute the parallel transport of a tangent vector.
 
@@ -1251,6 +1254,33 @@ class SpecialEuclideanMatrixCannonicalLeftMetric(_InvariantMetricMatrix):
         """
         dist = _squared_dist(point_a, point_b, metric=self)
         return dist
+
+    def injectivity_radius(self, base_point):
+        """Compute the radius of the injectivity domain.
+
+        This is is the supremum of radii r for which the exponential map is a
+        diffeomorphism from the open ball of radius r centered at the base point onto
+        its image.
+        In this case, it does not depend on the base point. If the rotation part is
+        null, then the radius is infinite, otherwise it is the same as the special
+        orthonormal group.
+
+        Parameters
+        ----------
+        base_point : array-like, shape=[..., n + 1, n + 1]
+            Point on the manifold.
+
+        Returns
+        -------
+        radius : float
+            Injectivity radius.
+        """
+        rotation = base_point[..., : self.n, : self.n]
+        rotation_radius = gs.pi * (self.dim - self.n) ** 0.5
+        radius = gs.where(
+            gs.sum(rotation, axis=(-2, -1)) == 0, math.inf, rotation_radius
+        )
+        return radius
 
 
 class SpecialEuclidean(

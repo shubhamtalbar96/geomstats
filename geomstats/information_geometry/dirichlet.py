@@ -3,6 +3,7 @@
 Lead author: Alice Le Brigant.
 """
 import logging
+import math
 
 import numpy as np
 from scipy.integrate import odeint, solve_bvp
@@ -125,7 +126,19 @@ class DirichletDistributions(OpenSet):
         point = gs.to_ndarray(point, to_ndim=2)
         samples = []
         for param in point:
-            samples.append(gs.array(dirichlet.rvs(param, size=n_samples)))
+            sample = gs.array(dirichlet.rvs(param, size=n_samples))
+            samples.append(
+                gs.hstack(
+                    (
+                        sample[:, :-1],
+                        gs.transpose(
+                            gs.to_ndarray(
+                                1 - gs.sum(sample[:, :-1], axis=-1), to_ndim=2
+                            )
+                        ),
+                    )
+                )
+            )
         return samples[0] if len(point) == 1 else gs.stack(samples)
 
     def point_to_pdf(self, point):
@@ -165,7 +178,7 @@ class DirichletDistributions(OpenSet):
             """
             pdf_at_x = []
             for param in point:
-                pdf_at_x.append([gs.array(dirichlet.pdf(pt, param)) for pt in x])
+                pdf_at_x.append(gs.array([dirichlet.pdf(pt, param) for pt in x]))
             pdf_at_x = gs.squeeze(gs.stack(pdf_at_x, axis=0))
 
             return pdf_at_x
@@ -451,7 +464,8 @@ class DirichletMetric(RiemannianMetric):
                     solution = odeint(ivp, initial_state, t_int, ())
                     geod.append(solution[:, : self.dim])
 
-            return geod[0] if len(initial_point) == 1 else gs.stack(geod)
+            geod = geod[0] if len(initial_point) == 1 else gs.stack(geod)
+            return gs.where(geod < gs.atol, gs.atol, geod)
 
         return path
 
@@ -634,7 +648,12 @@ class DirichletMetric(RiemannianMetric):
         return dist, curve, velocity
 
     def _geodesic_bvp(
-        self, initial_point, end_point, n_steps=N_STEPS, jacobian=False, init="linear"
+        self,
+        initial_point,
+        end_point,
+        n_steps=N_STEPS,
+        jacobian=False,
+        init="polynomial",
     ):
         """Solve geodesic boundary problem.
 
@@ -802,11 +821,14 @@ class DirichletMetric(RiemannianMetric):
                 geodesic = solution_at_t[: self.dim, :]
                 geod.append(gs.squeeze(gs.transpose(geodesic)))
 
-            return geod[0] if len(initial_point) == 1 else gs.stack(geod)
+            geod = geod[0] if len(initial_point) == 1 else gs.stack(geod)
+            return gs.where(geod < gs.atol, gs.atol, geod)
 
         return path
 
-    def log(self, point, base_point, n_steps=N_STEPS, jacobian=False, init="linear"):
+    def log(
+        self, point, base_point, n_steps=N_STEPS, jacobian=False, init="polynomial"
+    ):
         """Compute the logarithm map.
 
         Compute logarithm map associated to the Fisher information metric by
@@ -903,3 +925,24 @@ class DirichletMetric(RiemannianMetric):
             path = self._geodesic_ivp(initial_point, initial_tangent_vec, n_steps)
 
         return path
+
+    def injectivity_radius(self, base_point):
+        """Compute the radius of the injectivity domain.
+
+        This is is the supremum of radii r for which the exponential map is a
+        diffeomorphism from the open ball of radius r centered at the base point onto
+        its image.
+        In the case of the hyperbolic space, it does not depend on the base point and
+        is infinite everywhere, because of the negative curvature.
+
+        Parameters
+        ----------
+        base_point : array-like, shape=[..., dim]
+            Point on the manifold.
+
+        Returns
+        -------
+        radius : float
+            Injectivity radius.
+        """
+        return math.inf
